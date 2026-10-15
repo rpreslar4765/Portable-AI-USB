@@ -165,7 +165,7 @@ resolve_mount_source() {
   fi
 
   if [[ -z "$source" ]]; then
-    source=$(mount | awk -v target="$mnt" '$3 == "on" && $5 == target {print $1; exit}')
+    source=$(mount | awk -v target="$mnt" '$2 == "on" && $3 == target {print $1; exit}')
   fi
 
   echo "$source"
@@ -180,7 +180,7 @@ resolve_mount_options() {
   fi
 
   if [[ -z "$opts" ]]; then
-    opts=$(mount | awk -v target="$mnt" '$3 == "on" && $5 == target {gsub(/^\(|\)$/, "", $6); print $6; exit}')
+    opts=$(mount | awk -v target="$mnt" '$2 == "on" && $3 == target {gsub(/^\(|\)$/, "", $6); print $6; exit}')
   fi
 
   echo "$opts"
@@ -190,12 +190,14 @@ use_requested_mount() {
   [[ -n "$REQUESTED_MOUNT" ]] || return 1
   [[ -d "$REQUESTED_MOUNT" ]] || return 1
 
-  TARGET_MOUNT="$REQUESTED_MOUNT"
-  CURRENT_DEVICE=$(resolve_mount_source "$TARGET_MOUNT")
+  local requested_device
+  requested_device=$(resolve_mount_source "$REQUESTED_MOUNT")
 
-  [[ -n "$CURRENT_DEVICE" ]] || return 1
-  device_visible "$CURRENT_DEVICE" || return 1
-  is_removable_or_usb "$CURRENT_DEVICE" || return 1
+  [[ -n "$requested_device" ]] || return 1
+  device_visible "$requested_device" || return 1
+  is_removable_or_usb "$requested_device" || return 1
+  TARGET_MOUNT="$REQUESTED_MOUNT"
+  CURRENT_DEVICE="$requested_device"
   return 0
 }
 
@@ -391,27 +393,28 @@ fi
 section "Step 2 / 4 — USB Drive Detection"
 echo ""
 
-if choose_from_mounted_usbs; then
+if [[ -n "$REQUESTED_MOUNT" ]]; then
   if use_requested_mount; then
     result_pass "Using user-specified mount path"
-  elif (( AUTO_USB_COUNT <= 1 )); then
+  else
+    result_fail "Requested mount is not a usable removable USB drive: $REQUESTED_MOUNT"
+    exit 1
+  fi
+elif choose_from_mounted_usbs; then
+  if (( AUTO_USB_COUNT <= 1 )); then
     result_pass "Detected mounted removable USB drive automatically"
   else
     result_pass "Selected mounted removable USB drive"
   fi
+elif choose_from_all_removable_devices; then
+  result_warn "Could not auto-detect a mounted removable USB drive"
+  result_pass "Selected USB device manually"
 else
-  if use_requested_mount; then
-    result_pass "Using user-specified mount path"
-  elif choose_from_all_removable_devices; then
-    result_warn "Could not auto-detect a mounted removable USB drive"
-    result_pass "Selected USB device manually"
-  else
-    result_warn "Could not auto-detect a mounted removable USB drive"
-    result_fail "No usable USB drive selected"
-    echo ""
-    echo -e "  ${RED}Tip:${NC} Make sure the USB is mounted, then re-run this script."
-    exit 1
-  fi
+  result_warn "Could not auto-detect a mounted removable USB drive"
+  result_fail "No usable USB drive selected"
+  echo ""
+  echo -e "  ${RED}Tip:${NC} Make sure the USB is mounted, then re-run this script."
+  exit 1
 fi
 
 if [[ -z "$TARGET_MOUNT" || ! -d "$TARGET_MOUNT" ]]; then
@@ -569,12 +572,15 @@ WRITE_OK=false
 
 if command -v dd &>/dev/null; then
   T_START=$(date +%s%N 2>/dev/null || echo 0)
-  dd if=/dev/urandom of="$TMPFILE" bs=1M count="$BENCH_SIZE_MB" conv=fsync 2>/dev/null
+  if dd if=/dev/urandom of="$TMPFILE" bs=1M count="$BENCH_SIZE_MB" conv=fsync 2>/dev/null; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
     WRITE_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
     WRITE_OK=true
+  fi
+  else
+    result_fail "Write benchmark failed — check free space and write access"
   fi
 fi
 
@@ -610,12 +616,15 @@ if [[ -f "$TMPFILE" ]]; then
   fi
 
   T_START=$(date +%s%N 2>/dev/null || echo 0)
-  dd if="$TMPFILE" of=/dev/null bs=1M 2>/dev/null
+  if dd if="$TMPFILE" of=/dev/null bs=1M 2>/dev/null; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
     READ_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
     READ_OK=true
+  fi
+  else
+    result_fail "Read benchmark failed — check the drive for I/O errors"
   fi
 fi
 
@@ -741,3 +750,4 @@ else
     exit 0
   fi
 fi
+
