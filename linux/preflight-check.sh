@@ -165,7 +165,7 @@ resolve_mount_source() {
   fi
 
   if [[ -z "$source" ]]; then
-    source=$(mount | awk -v target="$mnt" '$3 == "on" && $5 == target {print $1; exit}')
+    source=$(mount | awk -v target="$mnt" '$2 == "on" && $3 == target {print $1; exit}')
   fi
 
   echo "$source"
@@ -180,7 +180,7 @@ resolve_mount_options() {
   fi
 
   if [[ -z "$opts" ]]; then
-    opts=$(mount | awk -v target="$mnt" '$3 == "on" && $5 == target {gsub(/^\(|\)$/, "", $6); print $6; exit}')
+    opts=$(mount | awk -v target="$mnt" '$2 == "on" && $3 == target {gsub(/^\(|\)$/, "", $6); print $6; exit}')
   fi
 
   echo "$opts"
@@ -569,12 +569,15 @@ WRITE_OK=false
 
 if command -v dd &>/dev/null; then
   T_START=$(date +%s%N 2>/dev/null || echo 0)
-  dd if=/dev/urandom of="$TMPFILE" bs=1M count="$BENCH_SIZE_MB" conv=fsync 2>/dev/null
+  if dd if=/dev/urandom of="$TMPFILE" bs=1M count="$BENCH_SIZE_MB" conv=fsync 2>/dev/null; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
     WRITE_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
     WRITE_OK=true
+  fi
+  else
+    result_fail "Write benchmark failed — check free space and write access"
   fi
 fi
 
@@ -610,12 +613,15 @@ if [[ -f "$TMPFILE" ]]; then
   fi
 
   T_START=$(date +%s%N 2>/dev/null || echo 0)
-  dd if="$TMPFILE" of=/dev/null bs=1M 2>/dev/null
+  if dd if="$TMPFILE" of=/dev/null bs=1M 2>/dev/null; then
   T_END=$(date +%s%N 2>/dev/null || echo 0)
   T_NS=$(( T_END - T_START ))
   if (( T_NS > 0 )); then
     READ_MBPS=$(awk "BEGIN{printf \"%.1f\",($BENCH_SIZE_MB*1000000000)/$T_NS}")
     READ_OK=true
+  fi
+  else
+    result_fail "Read benchmark failed — check the drive for I/O errors"
   fi
 fi
 
@@ -741,3 +747,4 @@ else
     exit 0
   fi
 fi
+
