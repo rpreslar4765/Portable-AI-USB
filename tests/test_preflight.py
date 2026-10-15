@@ -23,6 +23,19 @@ resolve_mount_options /media/usb
 ''')
         self.assertEqual(output.splitlines(), ["/dev/sdb1", "ro,nosuid,nodev"])
 
+    def test_invalid_requested_mount_preserves_valid_selection(self):
+        output = self.run_shell('''
+REQUESTED_MOUNT=/tmp
+TARGET_MOUNT=/media/usb
+CURRENT_DEVICE=/dev/sdb1
+resolve_mount_source() { echo /dev/internal; }
+device_visible() { return 0; }
+is_removable_or_usb() { return 1; }
+if use_requested_mount; then exit 1; fi
+printf '%s|%s' "$TARGET_MOUNT" "$CURRENT_DEVICE"
+''')
+        self.assertEqual(output, "/media/usb|/dev/sdb1")
+
     def test_failed_io_is_not_reported_as_measured_speed(self):
         for kind, start, end in [("Write", "WRITE_MBPS=0\nWRITE_OK=false", '# ── Read Speed'), ("Read", "READ_MBPS=0\nREAD_OK=false", '# ── USB generation hint')]:
             section = SOURCE[SOURCE.index(start):].split(end)[0]
